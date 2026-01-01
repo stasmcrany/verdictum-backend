@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  verdictum-backend-v0.2
+  Serverless Sanctions Screening API (Refactored Architecture)
+
+Globals:
+  Function:
+    Timeout: 5
+    MemorySize: 128
+    Runtime: python3.10
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        # Ссылка на таблицу создается ниже
+        TABLE_NAME: !Ref SanctionsTable
+
+Resources:
+  # --- DYNAMODB TABLE ---
+  SanctionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      # Внимание: имя таблицы мы не хардкодим, пусть AWS генерирует уникальное
+      # Но если ты хочешь использовать ТУ ЖЕ таблицу, что и раньше - можно оставить пустым
+      # или импортировать существующую (но для чистоты v0.2 лучше создать новую или использовать ссылку)
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  # --- SEARCH FUNCTION (GET) ---
+  SearchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: app.api.search_handler.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SanctionsTable
+      Events:
+        SearchAPI:
+          Type: Api
+          Properties:
+            Path: /search
+            Method: get
+
+  # --- INGEST FUNCTION (POST) ---
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: app.api.ingest_handler.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SanctionsTable
+      Events:
+        IngestAPI:
+          Type: Api
+          Properties:
+            Path: /ingest
+            Method: post
+
+Outputs:
+  SearchApiUrl:
+    Description: "API Gateway endpoint URL for Prod stage for Search function"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/search/"
