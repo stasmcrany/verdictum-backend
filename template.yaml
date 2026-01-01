@@ -1,29 +1,31 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  verdictum-backend-v0.2
-  Serverless Sanctions Screening API (Refactored Architecture)
+  verdictum-backend
+  Serverless Sanctions Screening API (Search & Ingest)
 
+# Глобальные настройки (применяются ко всем функциям и API)
 Globals:
   Function:
-    Timeout: 5
+    Timeout: 10
     MemorySize: 128
     Runtime: python3.10
     Architectures:
       - x86_64
-    Environment:
-      Variables:
-        # Ссылка на таблицу создается ниже
-        TABLE_NAME: !Ref SanctionsTable
+  Api:
+    # Разрешаем браузеру делать запросы к нашему API (CORS)
+    Cors:
+      AllowMethods: "'GET,POST,OPTIONS'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      AllowOrigin: "'*'"
 
 Resources:
-  # --- DYNAMODB TABLE ---
+  # --- DynamoDB Table ---
   SanctionsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      # Внимание: имя таблицы мы не хардкодим, пусть AWS генерирует уникальное
-      # Но если ты хочешь использовать ТУ ЖЕ таблицу, что и раньше - можно оставить пустым
-      # или импортировать существующую (но для чистоты v0.2 лучше создать новую или использовать ссылку)
+      TableName: !Sub 'verdictum-sanctions-${AWS::StackName}'
+      BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: PK
           AttributeType: S
@@ -34,41 +36,76 @@ Resources:
           KeyType: HASH
         - AttributeName: SK
           KeyType: RANGE
-      BillingMode: PAY_PER_REQUEST
 
-  # --- SEARCH FUNCTION (GET) ---
+  # --- Lambda: Search Function ---
   SearchFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: .
-      Handler: app.api.search_handler.lambda_handler
+      Handler: app.api.search.lambda_handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref SanctionsTable
       Policies:
-        - DynamoDBCrudPolicy:
+        - DynamoDBReadPolicy:
             TableName: !Ref SanctionsTable
       Events:
-        SearchAPI:
+        SearchApi:
           Type: Api
           Properties:
             Path: /search
             Method: get
 
-  # --- INGEST FUNCTION (POST) ---
+  # --- Lambda: Ingest Function ---
   IngestFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: .
-      Handler: app.api.ingest_handler.lambda_handler
+      Handler: app.api.ingest.lambda_handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref SanctionsTable
       Policies:
-        - DynamoDBCrudPolicy:
+        - DynamoDBWritePolicy:
             TableName: !Ref SanctionsTable
       Events:
-        IngestAPI:
+        IngestApi:
           Type: Api
           Properties:
             Path: /ingest
             Method: post
 
+  # --- Frontend: S3 Static Website ---
+  VerdictumFrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      # Имя бакета будет: verdictum-frontend-<AccountID>
+      BucketName: !Sub 'verdictum-frontend-${AWS::AccountId}'
+      WebsiteConfiguration:
+        IndexDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  # Политика доступа: Разрешаем всем (Public) читать файлы из этого бакета
+  VerdictumFrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref VerdictumFrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Sub '${VerdictumFrontendBucket.Arn}/*'
+
 Outputs:
   SearchApiUrl:
-    Description: "API Gateway endpoint URL for Prod stage for Search function"
+    Description: "API Gateway endpoint URL for Prod stage"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/search/"
+  FrontendURL:
+    Description: "URL for the static website"
+    Value: !GetAtt VerdictumFrontendBucket.WebsiteURL

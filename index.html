@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VERDICTUM - Sanctions Search</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #232f3e; text-align: center; }
+        input { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;}
+        button { width: 100%; padding: 10px; background-color: #ff9900; border: none; color: white; font-weight: bold; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #ec8d00; }
+        #results { margin-top: 20px; }
+        .result-item { background: #f9f9f9; padding: 10px; border-left: 4px solid #ff9900; margin-bottom: 10px; }
+        .empty { color: #666; text-align: center; }
+        .error { color: red; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>VERDICTUM</h1>
+        <p style="text-align:center; color:#666;">OFAC / EU / UK Sanctions Search</p>
+        
+        <input type="text" id="searchInput" placeholder="Введите имя (например: vladimir)...">
+        <button onclick="searchSanctions()">НАЙТИ</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        // Вставь сюда свой URL API (без /search на конце)
+        const API_URL = "https://w9vj84kyba.execute-api.us-east-1.amazonaws.com/Prod";
+
+        async function searchSanctions() {
+            const query = document.getElementById('searchInput').value;
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<p class="empty">Поиск...</p>';
+
+            if (!query) {
+                resultsDiv.innerHTML = '';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/search?name=${encodeURIComponent(query)}`);
+                
+                if (!response.ok) throw new Error('Ошибка сети или API');
+                
+                const data = await response.json();
+                
+                resultsDiv.innerHTML = '';
+                if (data.results && data.results.length > 0) {
+                    data.results.forEach(item => {
+                        const div = document.createElement('div');
+                        div.className = 'result-item';
+                        div.innerHTML = `<strong>${item.name}</strong><br><small>Source: ${item.source}</small>`;
+                        resultsDiv.appendChild(div);
+                    });
+                } else {
+                    resultsDiv.innerHTML = '<p class="empty">Ничего не найдено.</p>';
+                }
+            } catch (error) {
+                console.error(error);
+                resultsDiv.innerHTML = '<p class="error">Ошибка доступа к API. Проверьте CORS.</p>';
+            }
+        }
+    </script>
+</body>
+</html>
